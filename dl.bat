@@ -5,19 +5,109 @@ setlocal enabledelayedexpansion
 :: ==========================================
 :: Title and Initialization
 :: ==========================================
-title YT-DLP Video Downloader v3.2
+title YT-DLP Video Downloader v3.3
 echo ==========================================
-echo    YT-DLP Video Downloader v3.2
+echo    YT-DLP Video Downloader v3.3
 echo ==========================================
 echo.
 
 :: ==========================================
-:: Mode Detection: Electron / CLI / Interactive / Update / About
+:: GUI Interface Contract (All Modes)
+:: ==========================================
+:: This script exposes a stable interface for any GUI frontend.
+:: Supported calling conventions:
+::
+::  [A] Electron / Desktop App Mode
+::      - Method 1: Set env var VIDEODL_URL_FILE=<path_to_url_file>
+::        then call: dl.bat <FORMAT_CHOICE>
+::      - Method 2: dl.bat <FORMAT_CHOICE> <path_to_url_file>
+::      - Exit codes: 0=success, 1=error (no interactive pause in this mode)
+::      - Progress lines: prefixed with [Progress], [Success], [Failed], [Info], [Error]
+::
+::  [B] CLI / Script Mode
+::      - dl.bat <URL> [FORMAT_CHOICE]
+::      - dl.bat --json-output [URL] [FORMAT_CHOICE]   (enables JSON status lines)
+::      - Exit codes: 0=success, 1=error
+::
+::  [C] WebSocket / Named-Pipe GUI Mode
+::      - Set env var VIDEODL_PIPE=<named_pipe_path>  (e.g. \\.\pipe\videodl)
+::      - Script will write JSON progress events to pipe in real-time
+::      - Pipe message format: {"event":"progress","percent":42,"speed":"1.2MiB/s","eta":"00:30"}
+::
+::  [D] JSON Output Mode (any GUI that reads stdout)
+::      - Activate by: set VIDEODL_JSON=1  OR pass --json-output as first arg
+::      - All status lines output as: {"event":"...", "data":"..."}
+::      - Events: init | tool_check | url_detected | format_selected |
+::                progress | success | failed | update | about
+::
+::  [E] Electron IPC / Named-Pipe Progress Mode
+::      - Set env var VIDEODL_PROGRESS_FILE=<path>
+::      - Script appends each yt-dlp progress line to that file
+::      - GUI polls or watches the file for real-time progress
+::
+::  [F] Custom Protocol (videodl://) Handler Mode
+::      - Registered via install-protocol.bat
+::      - Called as: dl.bat "videodl://https://..." [FORMAT]
+::      - Already handled in PARSE_URL section
+::
+::  [G] Python / Tkinter / PyQt GUI Mode
+::      - Launch via: python -c "import subprocess; subprocess.run(['dl.bat', url, fmt])"
+::      - Or set VIDEODL_JSON=1 and parse stdout JSON for status updates
+::
+::  [H] PowerShell / WPF GUI Mode
+::      - Launch as a Process with RedirectStandardOutput
+::      - Set VIDEODL_JSON=1 to receive structured JSON from stdout
+::
+::  [I] Web / Browser Extension Mode
+::      - Extension calls native messaging host which calls dl.bat
+::      - Pass URL via VIDEODL_URL_FILE env var or CLI args
+::      - Extension receives exit code and stdout from native host
+::
+::  [J] REST API / HTTP Server Mode (e.g. via Flask/FastAPI wrapper)
+::      - HTTP server spawns dl.bat as subprocess
+::      - Set VIDEODL_JSON=1 for structured progress on stdout
+::      - HTTP server relays progress via SSE or WebSocket to web client
+::
+:: ==========================================
+:: GUI Environment Variables Reference
+:: ==========================================
+::  VIDEODL_URL_FILE     Path to a .txt file containing the URL (one line)
+::  VIDEODL_JSON         Set to "1" to enable JSON output mode on stdout
+::  VIDEODL_PIPE         Named pipe path (short connection per event: open/write/close)
+::  VIDEODL_PIPE_FD      Set to "3" to write events to handle 3 (persistent long connection)
+::  VIDEODL_OUTPUT_DIR   Override default output directory
+::  VIDEODL_EXTRA_OPTS   Append custom yt-dlp options (advanced override)
+::  VIDEODL_NO_PAUSE     Set to "1" to suppress all pause prompts (useful for any GUI)
+::  VIDEODL_SILENT       Set to "1" to suppress all echo output (JSON mode implied)
+:: ==========================================
+
+:: ==========================================
+:: Mode Detection: GUI Environment Overrides
 :: ==========================================
 set "ELECTRON_MODE=0"
+set "JSON_MODE=0"
+set "PIPE_MODE=0"
+set "PIPE_FD_MODE=0"
 set "URL="
 set "FORMAT_CHOICE="
 set "URL_FILE="
+
+:: [D] JSON Output Mode via env var
+if /i "!VIDEODL_JSON!"=="1" set "JSON_MODE=1"
+
+:: [C] Named Pipe Mode via env var (short connection per event)
+if defined VIDEODL_PIPE set "PIPE_MODE=1"
+
+:: [C2] Persistent Named Pipe Mode via FD 3
+if /i "!VIDEODL_PIPE_FD!"=="3" set "PIPE_FD_MODE=1"
+if /i "!VIDEODL_PIPE_FD!"=="1" set "PIPE_FD_MODE=1"
+
+:: [H/G] No-pause override (any GUI should set this to avoid blocking)
+set "NO_PAUSE=0"
+if /i "!VIDEODL_NO_PAUSE!"=="1" set "NO_PAUSE=1"
+
+:: [J] Custom output dir override
+if defined VIDEODL_OUTPUT_DIR set "CUSTOM_OUTPUT_DIR=!VIDEODL_OUTPUT_DIR!"
 
 :: Check about argument
 if /i "%~1"=="about" goto SHOW_ABOUT
@@ -36,14 +126,22 @@ if /i "%~1"=="--help" goto SHOW_INVALID_URL_HELP
 if /i "%~1"=="/?" goto SHOW_INVALID_URL_HELP
 if /i "%~1"=="help" goto SHOW_INVALID_URL_HELP
 
-:: 1. Electron Mode Detection (via VIDEODL_URL_FILE env or existing file in arg2)
+:: [D] JSON Output Mode via CLI flag --json-output
+if /i "%~1"=="--json-output" (
+    set "JSON_MODE=1"
+    shift
+)
+
+:: [A] Electron Mode Detection (via VIDEODL_URL_FILE env or existing file in arg2)
 if defined VIDEODL_URL_FILE (
     set "ELECTRON_MODE=1"
+    set "NO_PAUSE=1"
     set "FORMAT_CHOICE=%~1"
     set "URL_FILE=%VIDEODL_URL_FILE%"
 ) else if not "%~2"=="" (
     if exist "%~2" (
         set "ELECTRON_MODE=1"
+        set "NO_PAUSE=1"
         set "FORMAT_CHOICE=%~1"
         set "URL_FILE=%~2"
     ) else (
@@ -57,6 +155,11 @@ if defined VIDEODL_URL_FILE (
 )
 
 :: ==========================================
+:: GUI Hook: INIT event
+:: ==========================================
+call :GUI_EVENT "init" "Script started, checking tools..."
+
+:: ==========================================
 :: 1. Check and Auto-download Core Tools
 :: ==========================================
 :CHECK_TOOLS
@@ -64,8 +167,9 @@ if defined VIDEODL_URL_FILE (
 if not exist "%~dp0yt-dlp.exe" (
     call :DOWNLOAD_YTDLP
     if !errorlevel! neq 0 (
+        call :GUI_EVENT "error" "Failed to get yt-dlp.exe"
         echo [Error] Failed to get yt-dlp.exe, exiting.
-        if !ELECTRON_MODE! equ 0 pause
+        if !NO_PAUSE! equ 0 pause
         exit /b 1
     )
 )
@@ -73,12 +177,14 @@ if not exist "%~dp0yt-dlp.exe" (
 if not exist "%~dp0ffmpeg.exe" (
     call :DOWNLOAD_FFMPEG
     if !errorlevel! neq 0 (
+        call :GUI_EVENT "error" "Failed to get ffmpeg.exe"
         echo [Error] Failed to get ffmpeg.exe, exiting.
-        if !ELECTRON_MODE! equ 0 pause
+        if !NO_PAUSE! equ 0 pause
         exit /b 1
     )
 )
 
+call :GUI_EVENT "tool_check" "Tools OK"
 goto CHECK_URL
 
 :: ==========================================
@@ -137,7 +243,7 @@ if !errorlevel! equ 0 (
 :: Fallback to PowerShell if curl is absent or download failed
 if !DL_SUCCESS! equ 0 (
     echo [Info] Using PowerShell fallback download...
-    powershell -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe', '%TEMP_ZIP%')"
+    powershell -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip', '%TEMP_ZIP%')"
 )
 
 if not exist "%TEMP_ZIP%" (
@@ -170,13 +276,14 @@ if exist "%~dp0ffmpeg.exe" (
 :: 2. Check URL
 :: ==========================================
 :CHECK_URL
-if !ELECTRON_MODE! equ 1 (
-    rem Electron mode: read URL from file
+if defined URL_FILE (
+    rem [A] Electron/File mode: read URL from file
     if exist "!URL_FILE!" (
         set /p "URL=" < "!URL_FILE!"
     ) else (
+        call :GUI_EVENT "error" "URL file not found: !URL_FILE!"
         echo [Error] URL file not found: !URL_FILE!
-        if !ELECTRON_MODE! equ 0 pause
+        if !NO_PAUSE! equ 0 pause
         exit /b 1
     )
 ) else if defined URL (
@@ -282,6 +389,8 @@ if "!URL:~0,4!"=="www." (
 
 if "!IS_VALID_URL!"=="0" goto SHOW_INVALID_URL_HELP
 
+call :GUI_EVENT "url_detected" "!URL!"
+
 :: ==========================================
 :: 3. Check Cookies & JS Runtime (Node/Deno)
 :: ==========================================
@@ -338,6 +447,9 @@ if "!FORMAT_CHOICE!"=="" set "FORMAT_CHOICE=1"
 set "PLAYLIST_PARAM=--no-playlist"
 set "EXTRA_OPTS=--embed-metadata --windows-filenames --trim-filenames 150 -N 4"
 
+:: [J] Allow GUI to inject custom yt-dlp options via env var
+if defined VIDEODL_EXTRA_OPTS set "EXTRA_OPTS=!EXTRA_OPTS! !VIDEODL_EXTRA_OPTS!"
+
 if "!FORMAT_CHOICE!"=="1" (
     set FORMAT_PARAM=-f bv*+ba/b -S "res,ext:mp4:m4a"
     set "MERGE_PARAM=--merge-output-format mp4"
@@ -359,7 +471,8 @@ if "!FORMAT_CHOICE!"=="1" (
     set "OUTPUT_DIR=videos\audio\mp3"
     set MEDIA_OPTS=--embed-thumbnail --convert-thumbnails jpg
 ) else if "!FORMAT_CHOICE!"=="5" (
-    set FORMAT_PARAM=-f bestaudio --extract-audio --audio-format m4a
+    rem Prefer native M4A (AAC) without re-encoding; fallback to best audio remuxed/converted to m4a
+    set FORMAT_PARAM=-f "ba[ext=m4a]/bestaudio" -x --audio-format m4a
     set "MERGE_PARAM="
     set "OUTPUT_DIR=videos\audio\m4a"
     set MEDIA_OPTS=--embed-thumbnail --convert-thumbnails jpg
@@ -378,11 +491,16 @@ if "!FORMAT_CHOICE!"=="1" (
     set MEDIA_OPTS=--embed-thumbnail --embed-subs --sub-langs "zh-Hans,zh-Hant,zh,en.*"
 )
 
+:: [J] GUI output dir override takes precedence
+if defined CUSTOM_OUTPUT_DIR set "OUTPUT_DIR=!CUSTOM_OUTPUT_DIR!"
+
 set "OUT_SUBPATH=%%(title)s [%%(id)s].%%(ext)s"
 if "!FORMAT_CHOICE!"=="6" set "OUT_SUBPATH=%%(playlist_title|Unknown)s\%%(playlist_index|0)s - %%(title)s [%%(id)s].%%(ext)s"
 
 :: Create output folder
 if not exist "%~dp0!OUTPUT_DIR!" mkdir "%~dp0!OUTPUT_DIR!" 2>nul
+
+call :GUI_EVENT "format_selected" "Format=!FORMAT_CHOICE! OutputDir=!OUTPUT_DIR!"
 
 :: ==========================================
 :: 5. Execute Download
@@ -394,6 +512,12 @@ echo URL: !URL!
 echo Output Directory: !OUTPUT_DIR!
 echo ==========================================
 echo.
+
+:: Progress tracking: pass --newline so yt-dlp flushes stdout per line.
+:: The GUI / caller should redirect stdout to a pipe or file externally if needed.
+:: Example (PowerShell):
+::   $proc = Start-Process dl.bat -ArgumentList "1","url.txt" -RedirectStandardOutput "progress.log" -NoNewWindow -PassThru
+::   # Then tail progress.log in your GUI
 
 :: Run yt-dlp
 "%~dp0yt-dlp.exe" !COOKIE_OPTION! !JS_PARAM! !PLAYLIST_PARAM! --ffmpeg-location "%~dp0." !FORMAT_PARAM! !MERGE_PARAM! !MEDIA_OPTS! !EXTRA_OPTS! --retries 10 --fragment-retries 10 --newline -o "%~dp0!OUTPUT_DIR!\!OUT_SUBPATH!" "!URL!"
@@ -414,7 +538,9 @@ echo Saved to: %~dp0!OUTPUT_DIR!
 echo ==========================================
 echo.
 
-if !ELECTRON_MODE! equ 1 goto DOWNLOAD_FINISH
+call :GUI_EVENT "success" "Saved to %~dp0!OUTPUT_DIR!"
+
+if !NO_PAUSE! equ 1 goto DOWNLOAD_FINISH
 
 echo Quick Actions:
 echo   [O] Open videos folder
@@ -446,7 +572,9 @@ echo   2. Restricted/Member video: place cookies.txt in folder
 echo   3. Check your network or proxy connection
 echo.
 
-if !ELECTRON_MODE! equ 1 goto DOWNLOAD_FINISH
+call :GUI_EVENT "failed" "Exit code !EXIT_CODE!"
+
+if !NO_PAUSE! equ 1 goto DOWNLOAD_FINISH
 
 echo Quick Actions:
 echo   [R] Retry download
@@ -461,7 +589,7 @@ if /i "!POST_ACTION!"=="r" (
 goto DOWNLOAD_FINISH
 
 :DOWNLOAD_FINISH
-if !ELECTRON_MODE! equ 0 pause
+if !NO_PAUSE! equ 0 pause
 exit /b !EXIT_CODE!
 
 :: ==========================================
@@ -472,13 +600,14 @@ echo ==========================================
 echo    Checking and updating yt-dlp...
 echo ==========================================
 echo.
+call :GUI_EVENT "update" "Updating yt-dlp..."
 if exist "%~dp0yt-dlp.exe" (
     "%~dp0yt-dlp.exe" -U
 ) else (
     call :DOWNLOAD_YTDLP
 )
 echo.
-if !ELECTRON_MODE! equ 0 pause
+if !NO_PAUSE! equ 0 pause
 exit /b 0
 
 :: ==========================================
@@ -493,7 +622,8 @@ echo 製作者: hray1413
 echo 郵箱: videodownload@ss2256.cc.cd
 echo.
 echo ==========================================
-if !ELECTRON_MODE! equ 0 pause
+call :GUI_EVENT "about" "v3.3 by hray1413"
+if !NO_PAUSE! equ 0 pause
 exit /b 0
 
 :: ==========================================
@@ -526,6 +656,10 @@ echo   4. 檢查並更新核心:
 echo      %~nx0 -u
 echo   5. 查看作者與版本資訊:
 echo      %~nx0 about
+echo   6. JSON 輸出模式 (GUI 整合):
+echo      set VIDEODL_JSON=1 ^& %~nx0 "URL" [格式]
+echo   7. 無暫停模式 (任何 GUI 皆適用):
+echo      set VIDEODL_NO_PAUSE=1 ^& %~nx0 "URL" [格式]
 echo.
 echo 格式說明:
 echo   [1] 最佳畫質 (MP4, 自動最高 4K/2K/1080p, 內嵌字幕海報) [預設]
@@ -536,7 +670,8 @@ echo   [5] 原生純音訊 (Best M4A, 內嵌封面)
 echo   [6] 整個播放清單 (Entire Playlist)
 echo ================================================================
 echo.
-if !ELECTRON_MODE! equ 1 exit /b 1
+call :GUI_EVENT "error" "Invalid URL or help requested"
+if !NO_PAUSE! equ 1 exit /b 1
 if not "%~1"=="" (
     pause
     exit /b 1
@@ -548,3 +683,39 @@ if "!RETRY_URL!"=="" exit /b 1
 set "URL=!RETRY_URL!"
 cls
 goto PARSE_URL
+
+:: ==========================================
+:: GUI_EVENT Subroutine
+:: ==========================================
+:: Unified event emitter for all GUI integration modes.
+:: Usage: call :GUI_EVENT <event_name> <data_string>
+::
+:: Outputs based on active modes:
+::  JSON_MODE=1    -> prints {"event":"<name>","data":"<data>"} to stdout
+::  PIPE_FD_MODE=1 -> writes same JSON to persistent handle 3 (long connection)
+::  PIPE_MODE=1    -> writes same JSON to named pipe VIDEODL_PIPE (short connection)
+::  default        -> no extra output (regular echo lines already present)
+::
+:GUI_EVENT
+set "GE_NAME=%~1"
+set "GE_DATA=%~2"
+
+:: JSON escape: convert \ to \\ and " to \"
+if defined GE_DATA (
+    set "GE_DATA=!GE_DATA:\=\\!"
+    set "GE_DATA=!GE_DATA:"=\"!"
+)
+
+if "!JSON_MODE!"=="1" (
+    echo {"event":"!GE_NAME!","data":"!GE_DATA!"}
+)
+
+if "!PIPE_FD_MODE!"=="1" (
+    rem Persistent long connection via file descriptor 3
+    echo {"event":"!GE_NAME!","data":"!GE_DATA!"} >&3 2>nul
+) else if "!PIPE_MODE!"=="1" (
+    rem Short connection (per-event open and close)
+    echo {"event":"!GE_NAME!","data":"!GE_DATA!"} > "!VIDEODL_PIPE!" 2>nul
+)
+
+exit /b 0
