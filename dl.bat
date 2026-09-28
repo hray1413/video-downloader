@@ -5,9 +5,9 @@ setlocal enabledelayedexpansion
 :: ==========================================
 :: Title and Initialization
 :: ==========================================
-title YT-DLP Video Downloader v3.3
+title YT-DLP Video Downloader v3.5
 echo ==========================================
-echo    YT-DLP Video Downloader v3.3
+echo    YT-DLP Video Downloader v3.5
 echo ==========================================
 echo.
 
@@ -619,7 +619,7 @@ echo Author: hray1413
 echo Email: videodownload@ss2256.cc.cd
 echo.
 echo ==========================================
-call :GUI_EVENT "about" "v3.3 by hray1413"
+call :GUI_EVENT "about" "v3.5 by hray1413"
 if !NO_PAUSE! equ 0 pause
 exit /b 0
 
