@@ -431,12 +431,12 @@ if defined FORMAT_CHOICE (
 )
 
 echo Select download format:
-echo   [1] Video (MP4, Best quality - Auto 4K/2K/1080p, Embedded Subs & Cover) [Default]
-echo   [2] Video (MP4, 1080p Max)
-echo   [3] Video (MP4, 720p Max)
-echo   [4] Audio only (MP3 320k, with Cover Art)
-echo   [5] Audio only (Best M4A, with Cover Art)
-echo   [6] Entire Playlist (MP4, organized in playlist folder)
+echo    [1] Video (MP4, Best quality - Auto 4K/2K/1080p, Embedded Subs & Cover) [Default]
+echo    [2] Video (MP4, 1080p Max)
+echo    [3] Video (MP4, 720p Max)
+echo    [4] Audio only (MP3 320k, with Cover Art)
+echo    [5] Audio only (Best M4A, with Cover Art)
+echo    [6] Entire Playlist (MP4, organized in playlist folder)
 echo.
 set /p "FORMAT_CHOICE=Enter choice (1-6, default 1): "
 
@@ -515,9 +515,6 @@ echo.
 
 :: Progress tracking: pass --newline so yt-dlp flushes stdout per line.
 :: The GUI / caller should redirect stdout to a pipe or file externally if needed.
-:: Example (PowerShell):
-::   $proc = Start-Process dl.bat -ArgumentList "1","url.txt" -RedirectStandardOutput "progress.log" -NoNewWindow -PassThru
-::   # Then tail progress.log in your GUI
 
 :: Run yt-dlp
 "%~dp0yt-dlp.exe" !COOKIE_OPTION! !JS_PARAM! !PLAYLIST_PARAM! --ffmpeg-location "%~dp0." !FORMAT_PARAM! !MERGE_PARAM! !MEDIA_OPTS! !EXTRA_OPTS! --retries 10 --fragment-retries 10 --newline -o "%~dp0!OUTPUT_DIR!\!OUT_SUBPATH!" "!URL!"
@@ -543,9 +540,9 @@ call :GUI_EVENT "success" "Saved to %~dp0!OUTPUT_DIR!"
 if !NO_PAUSE! equ 1 goto DOWNLOAD_FINISH
 
 echo Quick Actions:
-echo   [O] Open videos folder
-echo   [C] Continue downloading another video
-echo   [Enter] Exit
+echo    [O] Open videos folder
+echo    [C] Continue downloading another video
+echo    [Enter] Exit
 echo.
 set "POST_ACTION="
 set /p "POST_ACTION=Select action (O/C/Enter): "
@@ -567,9 +564,9 @@ echo [Failed] Download encountered an error (code: !EXIT_CODE!)
 echo ==========================================
 echo.
 echo Troubleshooting tips:
-echo   1. Update core: run ".\dl.bat -u"
-echo   2. Restricted/Member video: place cookies.txt in folder
-echo   3. Check your network or proxy connection
+echo    1. Update core: run ".\dl.bat -u"
+echo    2. Restricted/Member video: place cookies.txt in folder
+echo    3. Check your network or proxy connection
 echo.
 
 call :GUI_EVENT "failed" "Exit code !EXIT_CODE!"
@@ -577,8 +574,8 @@ call :GUI_EVENT "failed" "Exit code !EXIT_CODE!"
 if !NO_PAUSE! equ 1 goto DOWNLOAD_FINISH
 
 echo Quick Actions:
-echo   [R] Retry download
-echo   [Enter] Exit
+echo    [R] Retry download
+echo    [Enter] Exit
 echo.
 set "POST_ACTION="
 set /p "POST_ACTION=Select action (R/Enter): "
@@ -618,8 +615,8 @@ echo ==========================================
 echo    YT-DLP Video Downloader
 echo ==========================================
 echo.
-echo 製作者: hray1413
-echo 郵箱: videodownload@ss2256.cc.cd
+echo Author: hray1413
+echo Email: videodownload@ss2256.cc.cd
 echo.
 echo ==========================================
 call :GUI_EVENT "about" "v3.3 by hray1413"
@@ -632,42 +629,43 @@ exit /b 0
 :SHOW_INVALID_URL_HELP
 echo.
 echo ================================================================
-echo [說明 / 使用指南] 請輸入有效的影片網址 (URL)！
+echo [Guide / Usage Instructions] Please enter a valid video URL!
 echo ================================================================
 echo.
-echo 說明:
-echo   您輸入的內容不是有效的網址，或未輸入任何網址。
-echo   請確保網址以 http://、https:// 或 www. 開頭。
-echo   若使用 videodl:// 協議喚起，系統已自動支援修復並補全冒號。
+echo Description:
+echo    The input provided is not a valid URL or no URL was entered.
+echo    Please ensure the URL starts with http://, https://, or www.
+echo    If invoked via the videodl:// protocol, the system automatically 
+echo    repairs and completes missing colons.
 echo.
-echo 支援平台:
-echo   • YouTube (影片、播放清單、Shorts、音樂)
-echo   • Bilibili (嗶哩嗶哩)
-echo   • Facebook、Twitter (X)、TikTok、Instagram 等主流平台
+echo Supported Platforms:
+echo    • YouTube (Videos, Playlists, Shorts, Music)
+echo    • Bilibili
+echo    • Facebook, Twitter (X), TikTok, Instagram, and other major platforms
 echo.
-echo 使用範例:
-echo   1. 互動模式:
-echo      直接執行 %~nx0，依提示貼上網址
-echo   2. 命令列快速下載:
-echo      %~nx0 "https://www.youtube.com/watch?v=xxx" [格式 1-6]
-echo   3. 自訂協議喚起:
-echo      %~nx0 "videodl://https://www.youtube.com/watch?v=xxx"
-echo   4. 檢查並更新核心:
-echo      %~nx0 -u
-echo   5. 查看作者與版本資訊:
-echo      %~nx0 about
-echo   6. JSON 輸出模式 (GUI 整合):
-echo      set VIDEODL_JSON=1 ^& %~nx0 "URL" [格式]
-echo   7. 無暫停模式 (任何 GUI 皆適用):
-echo      set VIDEODL_NO_PAUSE=1 ^& %~nx0 "URL" [格式]
+echo Usage Examples:
+echo    1. Interactive Mode:
+echo       Simply run %~nx0 and follow the prompt to paste a URL
+echo    2. Quick CLI Download:
+echo       %~nx0 "https://www.youtube.com/watch?v=xxx" [Format 1-6]
+echo    3. Custom Protocol Invocation:
+echo       %~nx0 "videodl://https://www.youtube.com/watch?v=xxx"
+echo    4. Check & Update Core:
+echo       %~nx0 -u
+echo    5. View Author & Version Info:
+echo       %~nx0 about
+echo    6. JSON Output Mode (GUI Integration):
+echo       set VIDEODL_JSON=1 ^& %~nx0 "URL" [Format]
+echo    7. No-Pause Mode (Suitable for any GUI):
+echo       set VIDEODL_NO_PAUSE=1 ^& %~nx0 "URL" [Format]
 echo.
-echo 格式說明:
-echo   [1] 最佳畫質 (MP4, 自動最高 4K/2K/1080p, 內嵌字幕海報) [預設]
-echo   [2] 高清 1080p Max (MP4)
-echo   [3] 標清 720p Max (MP4)
-echo   [4] 高音質純音樂 (MP3 320k, 內嵌封面)
-echo   [5] 原生純音訊 (Best M4A, 內嵌封面)
-echo   [6] 整個播放清單 (Entire Playlist)
+echo Format Options:
+echo    [1] Best Quality (MP4, Auto up to 4K/2K/1080p, Embedded Subs & Cover) [Default]
+echo    [2] HD 1080p Max (MP4)
+echo    [3] SD 720p Max (MP4)
+echo    [4] High-Quality Audio (MP3 320k, Embedded Cover Art)
+echo    [5] Native Pure Audio (Best M4A, Embedded Cover Art)
+echo    [6] Entire Playlist
 echo ================================================================
 echo.
 call :GUI_EVENT "error" "Invalid URL or help requested"
@@ -678,7 +676,7 @@ if not "%~1"=="" (
 )
 rem Interactive mode: allow user to re-enter URL
 set "RETRY_URL="
-set /p "RETRY_URL=請重新輸入影片網址 (或直接按 Enter 結束): "
+set /p "RETRY_URL=Please re-enter the video URL (or press Enter to exit): "
 if "!RETRY_URL!"=="" exit /b 1
 set "URL=!RETRY_URL!"
 cls
