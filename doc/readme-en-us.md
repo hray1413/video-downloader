@@ -1,32 +1,30 @@
 # dl.bat — GUI Interface Integration Guide
 
-> YT-DLP Video Downloader v3.4
+> YT-DLP Video Downloader v3.5  
 > Author: hray1413 | Email: videodownload@ss2256.cc.cd
 
 ---
 
 ## Table of Contents
 
-1. [Overview](https://www.google.com/search?q=%23overview&utm_source=gemini)
-2. [Environment Variables Reference](https://www.google.com/search?q=%23environment-variables-reference&utm_source=gemini)
-3. [Exit Codes](https://www.google.com/search?q=%23exit-codes&utm_source=gemini)
-4. [Output Event Format](https://www.google.com/search?q=%23output-event-format&utm_source=gemini)
-5. [GUI Integration Modes Explained](https://www.google.com/search?q=%23gui-integration-modes-explained&utm_source=gemini)
-* [A. Electron / Desktop App](https://www.google.com/search?q=%23a-electron--desktop-app&utm_source=gemini)
-* [B. CLI / Script Mode](https://www.google.com/search?q=%23b-cli--script-mode&utm_source=gemini)
-* [C. WebSocket / Named Pipe Mode](https://www.google.com/search?q=%23c-websocket--named-pipe-mode&utm_source=gemini)
-* [D. JSON stdout Mode (Universal)](https://www.google.com/search?q=%23d-json-stdout-mode-universal&utm_source=gemini)
-* [E. Progress File Monitoring Mode](https://www.google.com/search?q=%23e-progress-file-monitoring-mode&utm_source=gemini)
-* [F. Custom Protocol videodl:// Handler](https://www.google.com/search?q=%23f-custom-protocol-videodl--handler&utm_source=gemini)
-* [G. Python / Tkinter / PyQt GUI](https://www.google.com/search?q=%23g-python--tkinter--pyqt-gui&utm_source=gemini)
-* [H. PowerShell / WPF GUI](https://www.google.com/search?q=%23h-powershell--wpf-gui&utm_source=gemini)
-* [I. Browser Extension (Native Messaging)](https://www.google.com/search?q=%23i-browser-extension-native-messaging&utm_source=gemini)
-* [J. REST API / HTTP Server Wrapper](https://www.google.com/search?q=%23j-rest-api--http-server-wrapper&utm_source=gemini)
-
-
-6. [Format Options](https://www.google.com/search?q=%23format-options&utm_source=gemini)
-7. [File Structure](https://www.google.com/search?q=%23file-structure&utm_source=gemini)
-8. [Interactive Mode Commands](https://www.google.com/search?q=%23interactive-mode-commands&utm_source=gemini)
+1. [Overview](#overview)
+2. [Environment Variables Reference](#environment-variables-reference)
+3. [Exit Codes](#exit-codes)
+4. [Output Event Format](#output-event-format)
+5. [GUI Integration Modes Explained](#gui-integration-modes-explained)
+   - [A. Electron / Desktop App](#a-electron--desktop-app)
+   - [B. CLI / Script Mode](#b-cli--script-mode)
+   - [C. WebSocket / Named Pipe Mode](#c-websocket--named-pipe-mode)
+   - [D. JSON stdout Mode (Universal)](#d-json-stdout-mode-universal)
+   - [E. Progress File Monitoring Mode](#e-progress-file-monitoring-mode)
+   - [F. Custom Protocol videodl:// Handler](#f-custom-protocol-videodl-handler)
+   - [G. Python / Tkinter / PyQt GUI](#g-python--tkinter--pyqt-gui)
+   - [H. PowerShell / WPF GUI](#h-powershell--wpf-gui)
+   - [I. Browser Extension (Native Messaging)](#i-browser-extension-native-messaging)
+   - [J. REST API / HTTP Server Wrapper](#j-rest-api--http-server-wrapper)
+6. [Format Options](#format-options)
+7. [File Structure](#file-structure)
+8. [Interactive Mode Commands](#interactive-mode-commands)
 
 ---
 
@@ -38,7 +36,6 @@
 dl.bat [URL] [FORMAT]
 dl.bat [FORMAT] [URL_FILE]         ← Electron mode
 dl.bat --json-output [URL] [FORMAT]
-
 ```
 
 ---
@@ -83,7 +80,6 @@ All status lines are identified by the following prefixes, which GUIs can parse 
 [Error]    Severe error
 [Warning]  Warning
 [Progress] yt-dlp raw progress line (output directly by yt-dlp)
-
 ```
 
 ### JSON Output Mode (`VIDEODL_JSON=1`)
@@ -98,9 +94,8 @@ Each event outputs a single line of JSON:
 {"event":"success","data":"Saved to C:\\...\\videos"}
 {"event":"failed","data":"Exit code 1"}
 {"event":"update","data":"Updating yt-dlp..."}
-{"event":"about","data":"v3.3 by hray1413"}
+{"event":"about","data":"v3.5 by hray1413"}
 {"event":"error","data":"<Error description>"}
-
 ```
 
 #### Full Event List
@@ -119,11 +114,11 @@ Each event outputs a single line of JSON:
 | `error` | Any error occurs |
 
 > [!TIP]
-> **Strict JSON Specification & Automatic Character Escaping Guarantee:**
+> **Strict JSON Specification & Automatic Character Escaping Guarantee:**  
 > Automatic escape filtering is implemented inside `dl.bat`. When an event string contains Windows path backslashes `\` (e.g., `Saved to C:\videos`) or double quotes `"`, the script automatically converts them to `\\` and `\"`, ensuring every output line is 100% compliant with RFC 8259 JSON specifications. Strict parsers across languages (such as Python `json.loads`, Node.js `JSON.parse`, C# `JsonSerializer.Deserialize`) can safely parse them directly without throwing `Invalid \escape` exceptions.
 
 > [!NOTE]
-> **Known Limitation (`&` Character Interference):**
+> **Known Limitation (`&` Character Interference):**  
 > Since `&` is a native command separator in Windows batch scripting, text data containing unquoted `&` characters may cause syntax interference. For URLs containing complex parameters (such as multiple `&key=val`), **it is strongly recommended to prioritize Mode A (`VIDEODL_URL_FILE` file transfer)** to completely avoid Windows command-line parsing traps for special characters like `&`, `^`, and `%`.
 
 ---
@@ -180,7 +175,6 @@ async function download(url, format = '1') {
     });
   });
 }
-
 ```
 
 #### Method 2: Command Line Arguments
@@ -189,7 +183,6 @@ async function download(url, format = '1') {
 const proc = spawn('cmd.exe', ['/c', 'dl.bat', format, urlFilePath], {
   env: { ...process.env, VIDEODL_NO_PAUSE: '1' }
 });
-
 ```
 
 #### IPC Receiver Example (Renderer)
@@ -203,7 +196,6 @@ ipcRenderer.on('dl-event', (_, event) => {
   if (event.event === 'failed')  showError(event.data);
   if (event.event === 'progress') updateProgressBar(event.data);
 });
-
 ```
 
 ---
@@ -226,7 +218,6 @@ dl.bat "https://www.youtube.com/watch?v=xxx" 4
 set VIDEODL_NO_PAUSE=1
 set VIDEODL_JSON=1
 dl.bat "https://www.youtube.com/watch?v=xxx" 1
-
 ```
 
 ---
@@ -236,9 +227,9 @@ dl.bat "https://www.youtube.com/watch?v=xxx" 1
 Suitable for local IPC communication requiring real-time event pushing to desktop apps, resident services, or WebSocket servers.
 
 > [!WARNING]
-> **Important Behavior of Windows Batch Redirection into Named Pipes:**
-> When the batch script executes `echo {...} > "!VIDEODL_PIPE!"`, Windows **re-opens the pipe, writes a single line, and immediately closes the handle** on every `>` operation.
-> For Named Pipe servers (such as C#'s `NamedPipeServerStream`), this counts as a **"Per-Event Short Connection"**.
+> **Important Behavior of Windows Batch Redirection into Named Pipes:**  
+> When the batch script executes `echo {...} > "!VIDEODL_PIPE!"`, Windows **re-opens the pipe, writes a single line, and immediately closes the handle** on every `>` operation.  
+> For Named Pipe servers (such as C#'s `NamedPipeServerStream`), this counts as a **"Per-Event Short Connection"**.  
 > If the server calls `WaitForConnection()` only once and expects to continuously `ReadLine()` in a long connection, it will receive an EOF / pipe broken error after reading the first line, causing all subsequent events to be missed!
 
 Depending on your architecture requirements, choose one of the following two implementation solutions:
@@ -255,7 +246,6 @@ The batch script opens a pipe connection and writes a single line every time an 
 set VIDEODL_PIPE=\\.\pipe\videodl
 set VIDEODL_NO_PAUSE=1
 dl.bat "https://..." 1
-
 ```
 
 ##### Server Implementation (PowerShell Example):
@@ -293,7 +283,6 @@ try {
 } finally {
     $pipe.Dispose()
 }
-
 ```
 
 ##### Server Implementation (C# / .NET Example):
@@ -335,7 +324,6 @@ public class NamedPipeEventListener
         }
     }
 }
-
 ```
 
 ---
@@ -345,10 +333,11 @@ public class NamedPipeEventListener
 If you want the Named Pipe server to maintain a **single uninterrupted connection**, allowing the server to continuously read all events using a single StreamReader:
 
 > [!IMPORTANT]
-> **Windows File Descriptor 3 Inheritance Mechanism and Prerequisites:**
-> Win32's `STARTUPINFO` natively only includes standard input (0), standard output (1), and standard error (2). Windows **does not** automatically create or inherit file descriptor 3 for child processes.
-> If file descriptor 3 is not created for the child process, executing `>&3` in the batch script will throw `ERROR_INVALID_HANDLE` (invalid handle), and the error message will be silently swallowed by `2>nul`, causing **all events to be silently lost**!
-> **Simplest and Most Robust Solution:** Use `cmd.exe`'s native parenthetical redirection syntax to let `cmd.exe` automatically open the pipe and bind it to slot 3 when parsing the command line:
+> **Windows File Descriptor 3 Inheritance Mechanism and Prerequisites:**  
+> Win32's `STARTUPINFO` natively only includes standard input (0), standard output (1), and standard error (2). Windows **does not** automatically create or inherit file descriptor 3 for child processes.  
+> If file descriptor 3 is not created for the child process, executing `>&3` in the batch script will throw `ERROR_INVALID_HANDLE` (invalid handle), and the error message will be silently swallowed by `2>nul`, causing **all events to be silently lost**!  
+>  
+> **Simplest and Most Robust Solution:** Use `cmd.exe`'s native parenthetical redirection syntax to let `cmd.exe` automatically open the pipe and bind it to slot 3 when parsing the command line:  
 > `cmd.exe /c "set VIDEODL_PIPE_FD=3 && (dl.bat "URL" FORMAT) 3>\\.\pipe\videodl"`
 
 ##### Correct Syntax for Initializing File Descriptor 3 Across Languages:
@@ -365,7 +354,6 @@ const child = spawn('cmd.exe', ['/c', cmdString], {
     cwd: 'C:\\path\\to\\Video_downloader',
     env: { ...process.env, VIDEODL_NO_PAUSE: '1', VIDEODL_PIPE_FD: '3' }
 });
-
 ```
 
 ###### 2. C# (.NET `System.Diagnostics.Process`)
@@ -384,7 +372,6 @@ psi.EnvironmentVariables["VIDEODL_NO_PAUSE"] = "1";
 psi.EnvironmentVariables["VIDEODL_PIPE_FD"] = "3";
 
 using var process = Process.Start(psi);
-
 ```
 
 ###### 3. Python (`subprocess`)
@@ -400,7 +387,6 @@ proc = subprocess.Popen(
     cwd=r'C:\path\to\Video_downloader',
     env=env
 )
-
 ```
 
 ###### 4. PowerShell
@@ -411,11 +397,11 @@ $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.FileName = "cmd.exe"
 $psi.Arguments = "/c $cmd"
 $psi.WorkingDirectory = "C:\path\to\Video_downloader"
-$psi.UseShellExecute = $false$psi.EnvironmentVariables["VIDEODL_NO_PAUSE"] = "1"
+$psi.UseShellExecute = $false
+$psi.EnvironmentVariables["VIDEODL_NO_PAUSE"] = "1"
 $psi.EnvironmentVariables["VIDEODL_PIPE_FD"] = "3"
 
 [System.Diagnostics.Process]::Start($psi)
-
 ```
 
 ##### Server Persistent Long-Connection Implementation (C# / .NET Example):
@@ -434,11 +420,10 @@ while ((line = await reader.ReadLineAsync()) != null)
         Console.WriteLine($"[Persistent Pipe Event] {line}");
     }
 }
-
 ```
 
 > [!TIP]
-> **Architectural Recommendation**:
+> **Architectural Recommendation**:  
 > If the GUI and `dl.bat` are launched as a subprocess by the same native application, **"Mode D: JSON stdout Mode" is strongly recommended**. A subprocess's standard output is naturally a persistent, high-performance, concurrency-safe long data stream, completely eliminating the need to handle complex named pipe handle lifecycles.
 
 ---
@@ -455,12 +440,11 @@ dl.bat "https://..." 1
 
 :: Or enable via command-line flag
 dl.bat --json-output "https://..." 1
-
 ```
 
 ```python
 # Python Example
-import subprocess, json
+import subprocess, json, os
 
 proc = subprocess.Popen(
     ['dl.bat', 'https://...', '1'],
@@ -476,7 +460,6 @@ for line in proc.stdout:
     if line.startswith('{'):
         event = json.loads(line)
         print(f"[{event['event']}] {event['data']}")
-
 ```
 
 ---
@@ -504,11 +487,10 @@ $proc = Start-Process -FilePath "cmd.exe" `
 # Monitor progress file
 Get-Content $progressFile -Wait | ForEach-Object {
     if ($_ -match '^\{') {
-        $event =$_ | ConvertFrom-Json
+        $event = $_ | ConvertFrom-Json
         Write-Host "Event: $($event.event) -> $($event.data)"
     }
 }
-
 ```
 
 ```csharp
@@ -522,7 +504,6 @@ watcher.Changed += (s, e) => {
     }
 };
 watcher.EnableRaisingEvents = true;
-
 ```
 
 ---
@@ -534,13 +515,13 @@ The `videodl://` protocol is registered in the system via `install-protocol.bat`
 ```
 videodl://https://www.youtube.com/watch?v=xxx
 videodl://https://www.youtube.com/watch?v=xxx 2
-
 ```
 
 > [!WARNING]
-> **Browser Normalization (Dropping Colons) Common Trap:**
-> Mainstream browsers (like Chrome, Edge) often normalize URLs when invoking custom protocols via JavaScript, stripping or escaping the second colon immediately following the custom protocol. For example:
-> `videodl://[https://www.youtube.com/](https://www.youtube.com/)...` might be converted by the browser core into `videodl://https//[www.youtube.com/](https://www.youtube.com/)...` or even `videodl://https/...` before being passed to the system command line.
+> **Browser Normalization (Dropping Colons) Common Trap:**  
+> Mainstream browsers (like Chrome, Edge) often normalize URLs when invoking custom protocols via JavaScript, stripping or escaping the second colon immediately following the custom protocol. For example:  
+> `videodl://https://www.youtube.com/...` might be converted by the browser core into `videodl://https//www.youtube.com/...` or even `videodl://https/...` before being passed to the system command line.  
+>  
 > **`dl.bat` has a built-in auto-tolerance mechanism**. During the `PARSE_URL` stage, the script automatically detects `https//`, `http//`, `https/`, and `http/` and re-appends the colon `://`. Callers can directly concatenate and invoke the full URL without manual encoding.
 
 The script automatically strips protocol prefixes and handles the following variants:
@@ -561,7 +542,6 @@ window.location.href = 'videodl://' + videoUrl;
 
 // Or with format
 window.location.href = `videodl://${videoUrl} 4`;  // 4=MP3
-
 ```
 
 ---
@@ -624,7 +604,6 @@ def on_event(event):
 
 dl = Downloader(r'C:\path\to\Video_downloader')
 dl.download('https://www.youtube.com/watch?v=xxx', '1', on_event=on_event)
-
 ```
 
 ---
@@ -636,31 +615,35 @@ function Start-VideoDownload {
     param(
         [string]$Url,
         [string]$Format = '1',
-        [string]$WorkDir = 'C:\path\to\Video_downloader',         [scriptblock]$OnEvent
+        [string]$WorkDir = 'C:\path\to\Video_downloader',
+        [scriptblock]$OnEvent
     )
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = 'cmd.exe'$psi.Arguments = "/c dl.bat `"$Url`" $Format"
-    $psi.WorkingDirectory =$WorkDir
-    $psi.UseShellExecute =$false
-    $psi.RedirectStandardOutput =$true
-    $psi.CreateNoWindow =$true
-    $psi.EnvironmentVariables['VIDEODL_NO_PAUSE'] = '1'$psi.EnvironmentVariables['VIDEODL_JSON'] = '1'
+    $psi.FileName = 'cmd.exe'
+    $psi.Arguments = "/c dl.bat `"$Url`" $Format"
+    $psi.WorkingDirectory = $WorkDir
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.CreateNoWindow = $true
+    $psi.EnvironmentVariables['VIDEODL_NO_PAUSE'] = '1'
+    $psi.EnvironmentVariables['VIDEODL_JSON'] = '1'
 
     $proc = New-Object System.Diagnostics.Process
-    $proc.StartInfo =$psi
+    $proc.StartInfo = $psi
 
     # Asynchronous output reading
     $proc.OutputDataReceived += {
-        param($s,$e)
-        if ($e.Data -and$e.Data.StartsWith('{')) {
-            $event =$e.Data | ConvertFrom-Json
-            if ($OnEvent) { & $OnEvent$event }
+        param($s, $e)
+        if ($e.Data -and $e.Data.StartsWith('{')) {
+            $event = $e.Data | ConvertFrom-Json
+            if ($OnEvent) { & $OnEvent $event }
         }
     }
 
     $proc.Start() | Out-Null
-    $proc.BeginOutputReadLine()$proc.WaitForExit()
+    $proc.BeginOutputReadLine()
+    $proc.WaitForExit()
     return $proc.ExitCode
 }
 
@@ -669,7 +652,6 @@ Start-VideoDownload -Url 'https://...' -Format '1' -OnEvent {
     param($event)
     Write-Host "[$($event.event)] $($event.data)"
 }
-
 ```
 
 ---
@@ -710,7 +692,6 @@ function sendNativeMessage(msg) {
     buf.write(json, 4);
     process.stdout.write(buf);
 }
-
 ```
 
 #### Extension-Side Invocation
@@ -725,7 +706,6 @@ chrome.runtime.sendNativeMessage('com.videodl.host', {
         console.log('Download successful');
     }
 });
-
 ```
 
 ---
@@ -773,7 +753,6 @@ def download():
 # Client (JavaScript)
 # const es = new EventSource('/download?url=https://...&format=1');
 # es.onmessage = e => { const evt = JSON.parse(e.data); console.log(evt); };
-
 ```
 
 #### FastAPI + WebSocket Example
@@ -807,7 +786,6 @@ async def download_ws(ws: WebSocket):
     await proc.wait()
     await ws.send_json({'event': 'done', 'code': proc.returncode})
     await ws.close()
-
 ```
 
 ---
@@ -843,7 +821,6 @@ Video_downloader\
     │   ├── mp3\
     │   └── m4a\
     └── playlists\
-
 ```
 
 ---
@@ -867,7 +844,7 @@ In interactive mode (launched without arguments), you can enter the following co
 ---
 
 > [!WARNING]
-> The `videodl://` protocol requires writing your own handler, and the invoked application must be your own; otherwise, it will not function.
+> The `videodl://` protocol requires writing your own handler, and the invoked application must be your own; otherwise, it will not function.  
 > Below is the `.reg` file configuration:
 
 ```ini
@@ -879,5 +856,8 @@ Windows Registry Editor Version 5.00
 
 [HKEY_CURRENT_USER\Software\Classes\videodl\shell\open\command]
 @="\"C:\\Users\\Administrator\\Desktop\\video_downloader\\electron-app\\dist\\win-unpacked\\VideoDownloader.exe\" \"%1\"" // This must be changed to your application directory
-
 ```
+
+你可以直接把上面這段內容存成 `readme-en-us.md` 使用。
+
+需要我再幫你調整什麼嗎？
