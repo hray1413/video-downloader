@@ -1,6 +1,6 @@
 # dl.bat — GUI 接口整合指南
 
-> YT-DLP Video Downloader v3.3  
+> YT-DLP Video Downloader v3.4  
 > 作者: hray1413 | 郵箱: videodownload@ss2256.cc.cd
 
 ---
@@ -47,8 +47,8 @@ dl.bat --json-output [URL] [FORMAT]
 |---|---|---|
 | `VIDEODL_URL_FILE` | 路徑字串 | 包含目標 URL 的文字檔路徑（第一行為 URL）。設定後自動進入 Electron 模式 |
 | `VIDEODL_JSON` | `1` | 啟用 JSON 事件輸出模式，所有狀態訊息輸出為 JSON 行 |
-| `VIDEODL_PIPE` | 命名管道路徑 | 如 `\\.\pipe\videodl`，事件寫入此管道 |
-| `VIDEODL_PROGRESS_FILE` | 路徑字串 | GUI 應將 stdout 重導向至此檔案，然後監視該檔案獲取進度 |
+| `VIDEODL_PIPE` | 命名管道路徑 | 如 `\\.\pipe\videodl`，事件寫入此管道（每次事件為一次短連線） |
+| `VIDEODL_PIPE_FD` | `3` | 設定為 `3` 時，事件透過重定向的控制代碼 3 輸出（持久長連線管道） |
 | `VIDEODL_OUTPUT_DIR` | 路徑字串 | 覆蓋預設輸出目錄（相對或絕對路徑均可）|
 | `VIDEODL_EXTRA_OPTS` | yt-dlp 參數字串 | 附加至 yt-dlp 命令列的額外參數（進階覆蓋）|
 | `VIDEODL_NO_PAUSE` | `1` | 抑制所有 `pause` 提示，適合任何 GUI 整合 |
@@ -113,6 +113,14 @@ dl.bat --json-output [URL] [FORMAT]
 | `update` | 執行更新 |
 | `about` | 顯示版本資訊 |
 | `error` | 任何錯誤發生時 |
+
+> [!TIP]
+> **嚴格 JSON 規範與自動字元轉義保障：**  
+> `dl.bat` 內部已實作自動轉義過濾。當事件字串含有 Windows 路徑反斜槓 `\`（如 `Saved to C:\videos`）或雙引號 `"` 時，腳本會自動轉換為 `\\` 與 `\"`，確保輸出的每行資料 100% 符合 RFC 8259 標準 JSON 規範，各語言嚴格解析器（如 Python `json.loads`、Node.js `JSON.parse`、C# `JsonSerializer.Deserialize`）皆可安全直接解析，不會拋出 `Invalid \escape` 異常。
+
+> [!NOTE]
+> **已知限制（`&` 字元干擾）：**  
+> 由於 Windows 批處理中 `&` 為原生命令連接符，若數據文本中包含未引號包裹的 `&` 可能引發語法干擾。對於含有複雜參數（如多個 `&key=val`）的 URL，**強烈建議優先使用模式 A（`VIDEODL_URL_FILE` 檔案傳遞）**，可徹底避開 Windows 命令列對 `&`、`^`、`%` 等特殊字元的解析陷阱。
 
 ---
 
@@ -217,33 +225,199 @@ dl.bat "https://www.youtube.com/watch?v=xxx" 1
 
 ### C. WebSocket / Named Pipe 模式
 
-適合需要實時推送事件給 WebSocket 客戶端的本機服務。
+適合需要實時推送事件給桌面應用、常駐服務或 WebSocket 服務端的本機 IPC 通訊。
 
+> [!WARNING]
+> **Windows Batch 重定向寫入 Named Pipe 的重要特性：**  
+> 批處理執行 `echo {...} > "!VIDEODL_PIPE!"` 時，Windows 每次 `>` 都會**重新開啟管道、寫入一行、隨即關閉控制代碼**。  
+> 對於 Named Pipe 服務端（如 C# 的 `NamedPipeServerStream`），這屬於**「每次事件一次短連線（Per-Event Short Connection）」**。  
+> 如果服務端僅呼叫一次 `WaitForConnection()` 就期待在長連接中持續 `ReadLine()`，在讀取第一行後就會收到 EOF / 管道中斷，導致遺漏後續所有事件！
+
+根據您的架構需求，可選擇以下兩種實作方案：
+
+---
+
+#### 方案 1：短連線循環模式（預設 `VIDEODL_PIPE`）
+
+批處理每次觸發事件時打開管道連線並寫入一行。服務端需在迴圈中不斷 **「等待連線 ➔ 讀取 ➔ 斷開連線」**。
+
+##### 啟動批處理：
 ```batch
-:: 啟動時設定命名管道路徑
 set VIDEODL_PIPE=\\.\pipe\videodl
 set VIDEODL_NO_PAUSE=1
 dl.bat "https://..." 1
 ```
 
-#### PowerShell Named Pipe Server 範例
-
+##### 伺服端實作（PowerShell 範例）：
 ```powershell
-# 建立命名管道伺服器
+# 建立命名管道伺服器（設定每次一筆連線）
 $pipe = New-Object System.IO.Pipes.NamedPipeServerStream(
-    'videodl', 
-    [System.IO.Pipes.PipeDirection]::In
+    'videodl',
+    [System.IO.Pipes.PipeDirection]::In,
+    1,                                                    # 最大執行個體數
+    [System.IO.Pipes.PipeTransmissionMode]::Byte,
+    [System.IO.Pipes.PipeOptions]::Asynchronous
 )
-$pipe.WaitForConnection()
-$reader = New-Object System.IO.StreamReader($pipe)
-while ($null -ne ($line = $reader.ReadLine())) {
-    Write-Host "Event: $line"
-    # 轉發至 WebSocket...
+
+Write-Host "Named Pipe 伺服端啟動，等待事件中..."
+
+try {
+    while ($true) {
+        # 1. 等待批處理建立短連線
+        $pipe.WaitForConnection()
+        
+        # 2. 讀取該次連線的一行事件 JSON
+        $reader = New-Object System.IO.StreamReader($pipe, [System.Text.Encoding]::UTF8)
+        $line = $reader.ReadLine()
+        
+        if ($null -ne $line -and $line.Trim() -ne "") {
+            Write-Host "收到事件: $line"
+            # 解析並轉發至 WebSocket 或更新 UI...
+            # $event = $line | ConvertFrom-Json
+        }
+        
+        # 3. 重要：必須中斷該次連線，準備接受下一個事件
+        $pipe.Disconnect()
+    }
+} finally {
+    $pipe.Dispose()
 }
 ```
 
-> [!NOTE]
-> 命名管道適合本機 IPC。若需跨網路，請使用 REST API 模式（J）搭配 WebSocket。
+##### 伺服端實作（C# / .NET 範例）：
+```csharp
+using System;
+using System.IO;
+using System.IO.Pipes;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+public class NamedPipeEventListener
+{
+    public static async Task StartListeningAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            using var server = new NamedPipeServerStream(
+                "videodl",
+                PipeDirection.In,
+                1,
+                PipeTransmissionMode.Byte,
+                PipeOptions.Asynchronous);
+
+            await server.WaitForConnectionAsync(cancellationToken);
+
+            using var reader = new StreamReader(server);
+            string? line = await reader.ReadLineAsync();
+
+            if (!string.IsNullOrEmpty(line))
+            {
+                var evt = JsonSerializer.Deserialize<JsonElement>(line);
+                Console.WriteLine($"[Pipe Event] {evt}");
+            }
+
+            // 關閉本次連線，下一輪迴圈建立新實例等待下一次寫入
+            server.Disconnect();
+        }
+    }
+}
+```
+
+---
+
+#### 方案 2：持久長連線模式（`VIDEODL_PIPE_FD=3` 控制代碼重定向）
+
+如果您希望 Named Pipe 伺服端保持**單一連線不中斷**，讓伺服端使用一個 StreamReader 連續讀取所有事件：
+
+> [!IMPORTANT]
+> **Windows 控制代碼 3 繼承機制與門檻說明：**  
+> Win32 的 `STARTUPINFO` 原生只包含標準輸入（0）、標準輸出（1）和標準錯誤（2）。Windows 系統**不會**自動為子進程建立或繼承控制代碼 3。  
+> 若子程序未建立控制代碼 3，批處理執行 `>&3` 時會拋出 `ERROR_INVALID_HANDLE`（無效的控制代碼），錯誤訊息會被 `2>nul` 靜默吞掉，導致**所有事件靜默丟失**！  
+> 
+> **最簡便穩健的解決方案：** 透過 `cmd.exe` 自身的括號重定向語法，讓 `cmd.exe` 在解析命令列時自動開啟管道並綁定到槽位 3：  
+> `cmd.exe /c "set VIDEODL_PIPE_FD=3 && (dl.bat "URL" FORMAT) 3>\\.\pipe\videodl"`
+
+##### 各語言發起控制代碼 3 的正確寫法：
+
+###### 1. Node.js (`child_process`)
+```javascript
+const { spawn } = require('child_process');
+
+// 讓 cmd.exe 括號重定向負責將 \\.\pipe\videodl 綁定至控制代碼 3
+const cmdString = `(dl.bat "${videoUrl}" ${format}) 3>\\\\.\\pipe\\videodl`;
+
+const child = spawn('cmd.exe', ['/c', cmdString], {
+    cwd: 'C:\\path\\to\\Video_downloader',
+    env: { ...process.env, VIDEODL_NO_PAUSE: '1', VIDEODL_PIPE_FD: '3' }
+});
+```
+
+###### 2. C# (.NET `System.Diagnostics.Process`)
+```csharp
+var psi = new ProcessStartInfo
+{
+    FileName = "cmd.exe",
+    // 透過 cmd.exe 括號重定向開啟 3 號控制代碼
+    Arguments = $"/c \"(dl.bat \"{url}\" {format}) 3>\\\\.\\pipe\\videodl\"",
+    WorkingDirectory = @"C:\path\to\Video_downloader",
+    UseShellExecute = false,
+    CreateNoWindow = true
+};
+psi.EnvironmentVariables["VIDEODL_NO_PAUSE"] = "1";
+psi.EnvironmentVariables["VIDEODL_PIPE_FD"] = "3";
+
+using var process = Process.Start(psi);
+```
+
+###### 3. Python (`subprocess`)
+```python
+import subprocess, os
+
+cmd = f'(dl.bat "{url}" {format}) 3>\\\\.\\pipe\\videodl'
+env = {**os.environ, 'VIDEODL_NO_PAUSE': '1', 'VIDEODL_PIPE_FD': '3'}
+
+proc = subprocess.Popen(
+    ['cmd.exe', '/c', cmd],
+    cwd=r'C:\path\to\Video_downloader',
+    env=env
+)
+```
+
+###### 4. PowerShell
+```powershell
+$cmd = "(dl.bat `"$url`" $format) 3>\\.\pipe\videodl"
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = "cmd.exe"
+$psi.Arguments = "/c $cmd"
+$psi.WorkingDirectory = "C:\path\to\Video_downloader"
+$psi.UseShellExecute = $false
+$psi.EnvironmentVariables["VIDEODL_NO_PAUSE"] = "1"
+$psi.EnvironmentVariables["VIDEODL_PIPE_FD"] = "3"
+
+[System.Diagnostics.Process]::Start($psi)
+```
+
+##### 伺服端持久長連線實作（C# / .NET 範例）：
+```csharp
+using var server = new NamedPipeServerStream("videodl", PipeDirection.In);
+await server.WaitForConnectionAsync(); // 僅需連線一次！
+
+using var reader = new StreamReader(server, System.Text.Encoding.UTF8);
+string? line;
+// 單一連線持續讀取，直到批處理結束自動關閉管道
+while ((line = await reader.ReadLineAsync()) != null)
+{
+    if (!string.IsNullOrWhiteSpace(line))
+    {
+        Console.WriteLine($"[持久管道事件] {line}");
+    }
+}
+```
+
+> [!TIP]
+> **架構建議**：  
+> 若 GUI 與 `dl.bat` 是由同一個本機應用發起子程序（Subprocess），**最強烈推薦使用「模式 D：JSON stdout 模式」**。子程序的標準輸出本質上就是一條天生持久、高效且無併發權限問題的長連接資料流，完全無需處理命名管道複雜的控制代碼生命週期。
 
 ---
 
@@ -285,10 +459,13 @@ for line in proc.stdout:
 
 ### E. 進度檔案監視模式
 
-GUI 將 stdout 重導向至檔案，然後監視（tail）該檔案獲取即時進度。
+若前端框架（如 WPF 或 Windows Forms）難以直接非同步讀取 Process stdout，可由調用方在發起程序時將 stdout 重定向至暫存日誌檔案，再透過檔案監控器讀取進度。
+
+> [!NOTE]
+> `dl.bat` 已內建 `--newline` 參數，保證 yt-dlp 進度以逐行即時沖刷（Line-buffered）方式輸出。腳本本身無需指定專用日誌路徑環境變數，統一由**調用端（GUI）在建立程序時直接重定向標準輸出**即可。
 
 > [!TIP]
-> 此模式適合使用檔案系統監視器（如 `FileSystemWatcher`）的 .NET/C# 應用。
+> 此模式適合使用檔案系統監視器（如 `FileSystemWatcher`）或定時輪詢日誌的桌面應用。
 
 ```powershell
 # PowerShell 啟動並監視進度
@@ -333,13 +510,22 @@ videodl://https://www.youtube.com/watch?v=xxx
 videodl://https://www.youtube.com/watch?v=xxx 2
 ```
 
+> [!WARNING]
+> **瀏覽器規範化（吃掉冒號）常見陷阱：**  
+> 主流瀏覽器（如 Chrome、Edge）在透過 JavaScript 喚起自訂協議時，常會對 URL 進行標準化處理，將緊跟在自訂協議後方的第二個冒號吃掉或轉義。例如：  
+> `videodl://https://www.youtube.com/...` 會被瀏覽器底層轉換成 `videodl://https//www.youtube.com/...` 甚至 `videodl://https/...` 傳入系統命令列。  
+> 
+> **`dl.bat` 已內建自動容錯機制**，腳本在 `PARSE_URL` 階段會自動偵測 `https//`、`http//`、`https/`、`http/` 並重新補齊冒號 `://`，調用方直接將完整 URL 拼接喚起即可，無需手動編碼。
+
 腳本自動剝離協議前綴並處理以下變體：
 
-| 輸入格式 | 自動修正為 |
+| 輸入格式（含瀏覽器規範化後） | 自動修正為 |
 |---|---|
-| `videodl:///https://...` | `https://...` |
 | `videodl://https://...` | `https://...` |
+| `videodl:///https://...` | `https://...` |
 | `videodl:https://...` | `https://...` |
+| `https//...`（冒號被吃掉） | `https://...` |
+| `http//...`（冒號被吃掉） | `http://...` |
 
 #### 從 JavaScript 喚起
 
@@ -605,7 +791,7 @@ async def download_ws(ws: WebSocket):
 | `2` | 1080p Max MP4，內嵌字幕與封面 | `videos\` |
 | `3` | 720p Max MP4，內嵌字幕與封面 | `videos\` |
 | `4` | MP3 320k，內嵌封面 | `videos\audio\mp3\` |
-| `5` | Best M4A，內嵌封面 | `videos\audio\m4a\` |
+| `5` | 原生純音訊（優先下載原生 M4A 免重新編碼；若源無 M4A 則自動 Remux/轉換），內嵌封面 | `videos\audio\m4a\` |
 | `6` | 整個播放清單 MP4，按清單資料夾分類 | `videos\playlists\` |
 
 ---
@@ -648,3 +834,20 @@ Video_downloader\
 > [!TIP]
 > 建議所有 GUI 整合都同時設定 `VIDEODL_NO_PAUSE=1` 與 `VIDEODL_JSON=1`，
 > 這樣既不會因 `pause` 卡住子行程，又能從 JSON 事件流中獲取結構化的狀態資訊。
+
+---
+
+> [!WARNING]
+> videodl://的協議需要自己寫，調用的應用也要是自己的，不然將無法使用
+> 以下是我的.reg檔
+
+```
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Classes\videodl]
+@="URL:Video Downloader Protocol"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\videodl\shell\open\command]
+@="\"C:\\Users\\Administrator\\Desktop\\video_downloader\\electron-app\\dist\\win-unpacked\\VideoDownloader.exe\" \"%1\"" //此須改為你的應用目錄
+```
